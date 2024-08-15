@@ -1,86 +1,113 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import ButtonComponent from '../../core/shared/button/button.component';
-import axiosInstance from '../../core/configs/axios.config';
-import { Routes } from '../../router/routes';
-import { useHomeMainStyle } from './home.style';
+import axios from 'axios';
 import * as signalR from '@microsoft/signalr';
+import './home.style.css';
 
 interface UserModel {
   id: string;
   name: string;
-  avatar: string;
   status: string;
+  avatar: string;
 }
 
 interface ChatModel {
-  id: string;
   userId: string;
+  toUserId: string;
   date: string;
   message: string;
 }
 
 const HomeComponent: React.FC = () => {
-  const navigate = useNavigate();
-  const { homeMain, titleHome, userName, homeChild } = useHomeMainStyle();
-  const [userNamefromLocal, setUsernamefromLocal] = useState<string | null>(localStorage.getItem('userName'));
   const [users, setUsers] = useState<UserModel[]>([]);
   const [chats, setChats] = useState<ChatModel[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [selectedUser, setSelectedUser] = useState<UserModel | null>(null);
   const [message, setMessage] = useState<string>('');
+  const [hub, setHub] = useState<signalR.HubConnection | null>(null);
+  const [user, setUser] = useState<UserModel | null>(null);
 
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchUser = async () => {
       try {
-        const response = await axiosInstance.get<UserModel[]>('/users');
-        setUsers(response.data);
+        const storedUser = JSON.parse(localStorage.getItem("user") || '{}');
+        if (storedUser) {
+          setUser(storedUser);
+        }
       } catch (error) {
-        console.error('Error fetching users:', error);
+        console.error('Error fetching user data from localStorage:', error);
       }
     };
 
-    fetchUsers();
+    fetchUser();
+  }, []);
 
-    const hub = new signalR.HubConnectionBuilder().withUrl("https://localhost:7123/chat-hub").build();
-    hub.start().then(() => {
-      console.log("Connection is started...");
-      hub.invoke("Connect", localStorage.getItem('userId'));
-
-      hub.on("Users", (user: UserModel) => {
-        setUsers(users => users.map(u => u.id === user.id ? { ...u, status: user.status } : u));
-      });
-
-      hub.on("Messages", (chat: ChatModel) => {
-        if (selectedUser && selectedUser.id === chat.userId) {
-          setChats(chats => [...chats, chat]);
+  useEffect(() => {
+    if (user) {
+      const fetchUsers = async () => {
+        try {
+          const response = await axios.get<UserModel[]>('https://localhost:7123/api/Chats/GetUsers');
+          setUsers(response.data.filter(p => p.id !== user.id));
+        } catch (error) {
+          console.error('Error fetching users:', error);
         }
-      });
-    });
+      };
 
-    return () => {
-      hub.stop();
-    };
-  }, [selectedUser]);
+      fetchUsers();
 
-  const handleLogOut = () => {
-    localStorage.clear();
-    navigate('/' + Routes.signin);
-  };
+      const hubConnection = new signalR.HubConnectionBuilder()
+        .withUrl("https://localhost:7123/chat-hub")
+        .build();
+
+      setHub(hubConnection);
+
+      hubConnection.start().then(() => {
+        console.log("Connection is started...");
+        hubConnection.invoke("Connect", user.id); 
+
+        hubConnection.on("Users", (res: UserModel) => {
+          setUsers(users => users.map(p => p.id === res.id ? { ...p, status: res.status } : p));
+        });
+
+        hubConnection.on("Messages", (res: ChatModel) => {
+          if (selectedUserId === res.userId) {
+            setChats(chats => [...chats, res]);
+          }
+        });
+      }).catch(error => console.error('Error starting SignalR connection:', error));
+
+      return () => {
+        hubConnection.stop();
+      };
+    }
+  }, [user, selectedUserId]);
 
   const changeUser = async (user: UserModel) => {
+    setSelectedUserId(user.id);
     setSelectedUser(user);
+
     try {
-      const response = await axiosInstance.get<ChatModel[]>(`/chats?userId=${localStorage.getItem('userId')}&toUserId=${user.id}`);
+      const response = await axios.get<ChatModel[]>(`https://localhost:7123/api/Chats/GetChats?userId=${user.id}&toUserId=${selectedUserId}`);
       setChats(response.data);
     } catch (error) {
       console.error('Error fetching chats:', error);
     }
   };
 
+  const logout = () => {
+    localStorage.clear();
+    window.location.reload();
+  };
+
   const sendMessage = async () => {
     if (selectedUser) {
+      const data = {
+        userId: user?.id, 
+        toUserId: selectedUser.id,
+        message
+      };
+
       try {
-        const response = await axiosInstance.post<ChatModel>('/chats/send', { userId: localStorage.getItem('userId'), toUserId: selectedUser.id, message });
+        const response = await axios.post<ChatModel>('https://localhost:7123/api/Chats/SendMessage', data);
         setChats(chats => [...chats, response.data]);
         setMessage('');
       } catch (error) {
@@ -90,19 +117,14 @@ const HomeComponent: React.FC = () => {
   };
 
   return (
-    <div className={homeMain}>
-      <div className={homeChild}>
-        <h2 className={titleHome}>Welcome</h2>
-        <h2 className={userName}>{userNamefromLocal}</h2>
-        <ButtonComponent
-          content="Log out"
-          btnClassName='buttonMain'
-          type="button"
-          onClick={handleLogOut}
-        />
-        {/* Chat UI */}
-        <div className="chat-app">
-          <div className="people-list">
+    <div className='homeMain'>
+      <div className="homeChild">
+        <h1 className="titleHome">TS ChatAPP</h1>
+        <button onClick={logout} className="btn btn-danger" style={{ float: 'right' }}>
+          Çıkış Yap
+        </button>
+        <div className="card chat-app">
+          <div id="plist" className="people-list">
             <div className="input-group" style={{ position: 'relative' }}>
               <input type="text" className="form-control" placeholder="Search..." style={{ paddingLeft: '35px' }} />
               <i className="fa fa-search" style={{ position: 'absolute', top: '10px', left: '15px' }}></i>
@@ -111,7 +133,7 @@ const HomeComponent: React.FC = () => {
               {users.map(user => (
                 <li
                   key={user.id}
-                  className={`clearfix ${selectedUser && selectedUser.id === user.id ? 'active' : ''}`}
+                  className={`clearfix ${selectedUserId === user.id ? 'active' : ''}`}
                   onClick={() => changeUser(user)}
                 >
                   <img src={`https://localhost:7123/avatar/${user.avatar}`} alt="avatar" />
@@ -144,7 +166,7 @@ const HomeComponent: React.FC = () => {
                 <ul className="m-b-0">
                   {chats.map(chat => (
                     <li
-                      key={chat.id}
+                      key={chat.userId}
                       className={`clearfix ${selectedUser.id === chat.userId ? 'd-flex' : ''}`}
                       style={{ flexDirection: 'column', width: '100%', alignItems: selectedUser.id === chat.userId ? 'flex-end' : 'flex-start' }}
                     >

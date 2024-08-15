@@ -8,17 +8,19 @@ import axiosInstance from '../../core/configs/axios.config';
 import { Routes } from '../../router/routes';
 import { errorToast, successToast } from '../../core/shared/toast/toast';
 
-const SigninComponent = () => {
+const SigninComponent: React.FC = () => {
     const { main, title, buttons, form } = useSigninStyles();
     const navigate = useNavigate();
 
-    const authenticateUser = async (userData:any) => {
+
+    const authenticateUser = async (userData: { username: string }) => {
         try {
             const response = await axiosInstance.get('/auth/login', {
                 params: { name: userData.username }
             });
 
-            localStorage.setItem('accessToken', JSON.stringify(response.data.accessToken));
+          
+            localStorage.setItem('user', JSON.stringify(response.data.user));
 
             navigate(Routes.home);
             successToast("Logged in");
@@ -28,9 +30,17 @@ const SigninComponent = () => {
         }
     };
 
+ 
     const formik = useFormik({
         initialValues: {
             username: ''
+        },
+        validate: values => {
+            const errors: { username?: string } = {};
+            if (!values.username) {
+                errors.username = 'Username is required';
+            }
+            return errors;
         },
         onSubmit: values => {
             authenticateUser(values);

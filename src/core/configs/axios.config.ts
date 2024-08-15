@@ -19,7 +19,7 @@ axiosInstance.interceptors.response.use(
     const method = response?.config?.method?.toUpperCase() ?? '';
 
     if (method === 'POST') {
-      // successToast(' successfully sent');
+      successToast(' successfully sent');
     }
 
     return response;
