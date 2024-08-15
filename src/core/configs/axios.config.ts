@@ -2,7 +2,7 @@ import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { errorToast, successToast } from '../shared/toast/toast';
 
 const axiosInstance = axios.create({
-  baseURL: 'http://localhost:3000',
+  baseURL: 'https://localhost:7123/api',
 });
 
 axiosInstance.interceptors.request.use(
